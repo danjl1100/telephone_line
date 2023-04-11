@@ -1,47 +1,75 @@
 {
 
-  inputs.nixpkgs.url = "nixpkgs"; # "github:NixOS/nixpkgs";
-  inputs.flake-utils.url = "github:numtide/flake-utils";
-  inputs.maelstrom_bin = {
-    url = "https://github.com/jepsen-io/maelstrom/releases/download/v0.2.3/maelstrom.tar.bz2";
-    flake = false;
+  inputs = {
+    flake-utils.url = "github:numtide/flake-utils";
+    maelstrom-bin = {
+      url = "https://github.com/jepsen-io/maelstrom/releases/download/v0.2.3/maelstrom.tar.bz2";
+      flake = false;
+    };
+    nixpkgs.follows = "rust-overlay/nixpkgs";
+    rust-overlay.url = "github:oxalica/rust-overlay";
   };
 
-  outputs = { self, nixpkgs, flake-utils, maelstrom_bin }:
+  outputs = { self, nixpkgs, flake-utils, maelstrom-bin, rust-overlay }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        pkgs = import nixpkgs {
-          inherit system;
-        };
-        deps = [
-          pkgs.bash
-          pkgs.coreutils #dirname
-          pkgs.git
-
-          pkgs.jdk
-          pkgs.graphviz
-          pkgs.gnuplot
+        overlays = [
+          rust-overlay.overlays.default
         ];
+        pkgs = import nixpkgs {
+          inherit system overlays;
+        };
+
+        #
+        # Maelstrom package / test cases
+        #
+        maelstrom = let
+          in pkgs.writeShellScriptBin "maelstrom" ''
+            PATH=${pkgs.lib.strings.makeSearchPath "bin"
+              [
+                pkgs.bash
+                pkgs.coreutils #dirname
+                pkgs.git
+
+                pkgs.jdk
+                pkgs.graphviz
+                pkgs.gnuplot
+              ]}
+            ${maelstrom-bin}/maelstrom $*
+          '';
         assert_one_binary_input = ''
           if [ $# -ne 1 ]; then
-            echo "USAGE: $0 BINARY"
+            echo "USAGE: $(basename $0) BINARY"
             exit 1
           fi
           set -x
         '';
-      in {
-        packages = rec {
-          maelstrom = pkgs.writeShellScriptBin "maelstrom" ''
-            PATH=${pkgs.lib.strings.makeSearchPath "bin" deps}
-            ${maelstrom_bin}/maelstrom $*
-          '';
+        maelstrom-tests = {
           test-echo = pkgs.writeShellScriptBin "test-echo" ''
             ${assert_one_binary_input}
             ${maelstrom}/bin/maelstrom test -w echo --bin $1 --node-count 1 --time-limit 10
           '';
         };
+        maelstrom-tests-values = pkgs.lib.attrValues maelstrom-tests;
+
+        #
+        # Rust packages
+        #
+        rustChannel = "beta";
+        rustVersion = "latest";
+        rustToolchain = pkgs.rust-bin.${rustChannel}.${rustVersion}.default;
+
+        devShellPackages = [
+          rustToolchain
+          pkgs.bacon
+        ];
+
+      in rec {
+        packages = maelstrom-tests // {
+          inherit maelstrom;
+        };
         devShells.default = pkgs.mkShell {
-          packages = deps;
+          packages = devShellPackages ++ maelstrom-tests-values;
         };
       });
 }
