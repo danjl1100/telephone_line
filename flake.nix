@@ -103,6 +103,8 @@
         # Rust
         rustToolchain
         pkgs.bacon
+        # other
+        maelstrom
       ];
 
       craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
