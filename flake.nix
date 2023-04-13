@@ -49,6 +49,7 @@
           phases = ["buildPhase"];
           buildPhase = ''
             ${pkgs.alejandra}/bin/alejandra -c $srcs
+            touch $out
           '';
         };
 
