@@ -1,6 +1,16 @@
 {
 
   inputs = {
+    advisory-db = {
+      url = "github:rustsec/advisory-db";
+      flake = false;
+    };
+    crane = {
+      url = "github:ipetkov/crane";
+      inputs.flake-utils.follows = "flake-utils";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.rust-overlay.follows = "rust-overlay";
+    };
     flake-utils.url = "github:numtide/flake-utils";
     maelstrom-bin = {
       url = "https://github.com/jepsen-io/maelstrom/releases/download/v0.2.3/maelstrom.tar.bz2";
@@ -10,7 +20,15 @@
     rust-overlay.url = "github:oxalica/rust-overlay";
   };
 
-  outputs = { self, nixpkgs, flake-utils, maelstrom-bin, rust-overlay }:
+  outputs = {
+      self,
+      advisory-db,
+      crane,
+      flake-utils,
+      maelstrom-bin,
+      nixpkgs,
+      rust-overlay,
+    }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         overlays = [
@@ -45,7 +63,7 @@
           set -x
         '';
         maelstrom-tests = {
-          test-echo = pkgs.writeShellScriptBin "test-echo" ''
+          maelstrom-test-echo = pkgs.writeShellScriptBin "test-echo" ''
             ${assert_one_binary_input}
             ${maelstrom}/bin/maelstrom test -w echo --bin $1 --node-count 1 --time-limit 10
           '';
@@ -64,10 +82,15 @@
           pkgs.bacon
         ];
 
-      in rec {
-        packages = maelstrom-tests // {
-          inherit maelstrom;
+
+        craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
+        crate = pkgs.callPackage ./crate.nix {
+          inherit advisory-db system craneLib;
         };
+
+      in {
+        checks = crate.checks;
+
         devShells.default = pkgs.mkShell {
           packages = devShellPackages ++ maelstrom-tests-values ++ [
             (pkgs.writeShellScriptBin "build-test-echo" ''
@@ -80,5 +103,11 @@
             export CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
           '';
         };
+
+        packages = maelstrom-tests // {
+          inherit maelstrom;
+          default = crate.package;
+        };
+
       });
 }
