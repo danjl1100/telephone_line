@@ -83,6 +83,12 @@
         '';
       };
       maelstrom-tests-values = pkgs.lib.attrValues maelstrom-tests;
+      maelstrom-regression = pkgs.writeShellScriptBin "maelstrom-regression" ''
+        # exit on first error
+        set -e
+
+        ${maelstrom-tests.maelstrom-test-echo}/bin/test-echo ${crate.package}/bin/echo
+      '';
 
       #
       # Rust packages
@@ -130,6 +136,7 @@
         maelstrom-tests
         // {
           inherit maelstrom;
+          tests = maelstrom-regression;
           default = crate.package;
         };
     });
