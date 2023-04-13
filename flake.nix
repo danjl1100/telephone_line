@@ -38,6 +38,21 @@
           inherit system overlays;
         };
 
+        # Nix
+        nix-alejandra = let
+          has_extension = ext: path: (! builtins.isNull builtins.match ".*\\.${ext}" path);
+        in pkgs.stdenvNoCC.mkDerivation {
+          name = "nix-alejandra-check";
+          srcs = builtins.filterSource
+            (path: type: type != "file" || has_extension "nix" path)
+            ./.
+            ;
+          phases = ["buildPhase"];
+          buildPhase = ''
+            ${pkgs.alejandra}/bin/alejandra -c $srcs
+          '';
+        };
+
         #
         # Maelstrom package / test cases
         #
@@ -78,6 +93,9 @@
         rustToolchain = pkgs.rust-bin.${rustChannel}.${rustVersion}.default;
 
         devShellPackages = [
+          # Nix
+          pkgs.alejandra
+          # Rust
           rustToolchain
           pkgs.bacon
         ];
@@ -89,7 +107,9 @@
         };
 
       in {
-        checks = crate.checks;
+        checks = crate.checks // {
+          inherit nix-alejandra;
+        };
 
         devShells.default = pkgs.mkShell {
           packages = devShellPackages ++ maelstrom-tests-values ++ [
