@@ -30,11 +30,10 @@ impl Node for Unique {
             Payload::Generate => {
                 let id = format!("{}-{}", &self.node_id, self.msg_id);
                 reply.body.payload = Payload::GenerateOk { id };
-                reply.send(output)?;
+                reply.send(output)
             }
             Payload::GenerateOk { .. } => bail!("unexpected GenerateOk from {}", reply.dest),
         }
-        Ok(())
     }
 }
 

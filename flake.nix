@@ -85,6 +85,10 @@
           ${assert_one_binary_input}
           ${maelstrom}/bin/maelstrom test -w unique-ids --bin $1 --time-limit 30 --rate 1000 --node-count 3 --availability total --nemesis partition
         '';
+        maelstrom-test-broadcast-single = pkgs.writeShellScriptBin "test-broadcast-single" ''
+          ${assert_one_binary_input}
+          ${maelstrom}/bin/maelstrom test -w broadcast --bin $1 --node-count 1 --time-limit 20 --rate 10
+        '';
       };
       maelstrom-tests-values = pkgs.lib.attrValues maelstrom-tests;
       maelstrom-regression = pkgs.writeShellScriptBin "maelstrom-regression" ''
@@ -93,6 +97,7 @@
 
         ${maelstrom-tests.maelstrom-test-echo}/bin/test-echo ${crate.package}/bin/echo
         ${maelstrom-tests.maelstrom-test-unique}/bin/test-unique ${crate.package}/bin/unique
+        ${maelstrom-tests.maelstrom-test-broadcast-single}/bin/test-broadcast-single ${crate.package}/bin/broadcast
       '';
 
       #

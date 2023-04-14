@@ -25,11 +25,10 @@ impl Node for Echo {
         match reply.body.payload {
             Payload::Echo { echo } => {
                 reply.body.payload = Payload::EchoOk { echo };
-                reply.send(output)?;
+                reply.send(output)
             }
             Payload::EchoOk { .. } => bail!("unexpected EchoOk from {}", reply.dest),
         }
-        Ok(())
     }
 }
 
