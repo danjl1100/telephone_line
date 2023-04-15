@@ -1,4 +1,5 @@
 use anyhow::bail;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -100,6 +101,8 @@ impl Node for Broadcast {
     }
 
     fn step_event(&mut self, event: Event, output: &mut impl std::io::Write) -> anyhow::Result<()> {
+        const CHANCE_REAFFIRM_PROBABILITY: f64 = 0.05;
+        let rng = &mut rand::thread_rng();
         match event {
             Event::StartGossip => {
                 for neighbor in &self.neighbors {
@@ -111,6 +114,12 @@ impl Node for Broadcast {
                         .iter()
                         .copied()
                         .filter(|m| !other_know.contains(m))
+                        .chain(
+                            other_know
+                                .iter()
+                                .copied()
+                                .filter(|_| rng.gen_bool(CHANCE_REAFFIRM_PROBABILITY)),
+                        )
                         .collect();
                     if !gossip_messages.is_empty() {
                         Message {
