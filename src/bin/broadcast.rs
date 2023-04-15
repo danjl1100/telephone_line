@@ -11,14 +11,10 @@ struct Broadcast {
     msg_id: usize,
     node_id: String,
     messages: HashSet<usize>,
-    nodes_ping: HashMap<String, usize>,
     others_know: HashMap<String, HashSet<usize>>,
 }
 
-const PING_INTERVAL: Duration = Duration::from_millis(100);
-const GOSSIP_RATIO: u32 = 5;
-
-const PING_COUNT_THRESHOLD: usize = 0;
+const GOSSIP_INTERVAL: Duration = Duration::from_millis(400);
 
 const CAP_RATIO: f64 = 0.1;
 const CAP_FLOOR: u32 = 10;
@@ -36,22 +32,15 @@ impl Node for Broadcast {
     where
         Self: Sized,
     {
-        std::thread::spawn(move || 'outer: loop {
-            for n in 0..GOSSIP_RATIO {
-                std::thread::sleep(PING_INTERVAL);
+        std::thread::spawn(move || loop {
+            std::thread::sleep(GOSSIP_INTERVAL);
 
-                let result = if n == 0 {
-                    event_tx.send(Event::StartGossip)
-                } else {
-                    event_tx.send(Event::PingAll)
-                };
+            let result = event_tx.send(Event::StartGossip);
 
-                if result.is_err() {
-                    break 'outer;
-                }
+            if result.is_err() {
+                break;
             }
         });
-        let nodes_ping = init.node_ids.clone().into_iter().map(|n| (n, 0)).collect();
         let others_know = init
             .node_ids
             .into_iter()
@@ -61,7 +50,6 @@ impl Node for Broadcast {
             msg_id,
             node_id: init.node_id,
             messages: HashSet::new(),
-            nodes_ping,
             others_know,
         }
     }
@@ -73,10 +61,6 @@ impl Node for Broadcast {
     ) -> anyhow::Result<()> {
         let mut reply = message.reply(Some(&mut self.msg_id));
         let original_src = &reply.dest; // due to swap in `Message::reply`
-
-        if let Some(ping_count) = self.nodes_ping.get_mut(original_src) {
-            *ping_count += 1;
-        }
 
         match reply.body.payload {
             Payload::Broadcast { message } => {
@@ -119,18 +103,13 @@ impl Node for Broadcast {
 
                 Ok(())
             }
-            Payload::Ping => Ok(()),
         }
     }
 
     fn step_event(&mut self, event: Event, output: &mut impl std::io::Write) -> anyhow::Result<()> {
         match event {
             Event::StartGossip => {
-                for neighbor in self
-                    .nodes_ping
-                    .iter()
-                    .filter_map(|(n, ping)| (*ping > PING_COUNT_THRESHOLD).then_some(n))
-                {
+                for neighbor in self.others_know.keys() {
                     let Some(other_know) = self.others_know.get(neighbor) else {
                         bail!("unknown neighbor {neighbor}");
                     };
@@ -166,30 +145,6 @@ impl Node for Broadcast {
                         .send(output)?;
                     }
                 }
-                // clear ping counts
-                for (_, ping_count) in self.nodes_ping.iter_mut() {
-                    *ping_count = 0;
-                }
-                Ok(())
-            }
-            Event::PingAll => {
-                #[allow(clippy::absurd_extreme_comparisons)] // for ease of constant tuning
-                for node in self
-                    .nodes_ping
-                    .iter()
-                    .filter_map(|(n, ping)| (*ping <= PING_COUNT_THRESHOLD).then_some(n))
-                {
-                    Message {
-                        src: self.node_id.clone(),
-                        dest: node.clone(),
-                        body: Body {
-                            msg_id: None,
-                            in_reply_to: None,
-                            payload: Payload::Ping,
-                        },
-                    }
-                    .send(output)?;
-                }
                 Ok(())
             }
         }
@@ -214,12 +169,10 @@ pub enum Payload {
     Gossip {
         messages: HashSet<usize>,
     },
-    Ping,
 }
 
 enum Event {
     StartGossip,
-    PingAll,
 }
 
 fn main() -> anyhow::Result<()> {
