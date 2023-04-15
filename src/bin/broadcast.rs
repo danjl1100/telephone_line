@@ -1,4 +1,4 @@
-use anyhow::bail;
+use anyhow::{bail, Context};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -101,27 +101,32 @@ impl Node for Broadcast {
     }
 
     fn step_event(&mut self, event: Event, output: &mut impl std::io::Write) -> anyhow::Result<()> {
-        const CHANCE_REAFFIRM_PROBABILITY: f64 = 0.05;
-        let rng = &mut rand::thread_rng();
+        const CAP_RATIO: f64 = 0.1;
+        const CAP_FLOOR: u32 = 10;
         match event {
             Event::StartGossip => {
                 for neighbor in &self.neighbors {
                     let Some(other_know) = self.others_know.get(neighbor) else {
                         bail!("unknown neighbor {neighbor}");
                     };
-                    let gossip_messages: HashSet<_> = self
+                    let (already_known, mut notify_of): (HashSet<_>, HashSet<_>) = self
                         .messages
                         .iter()
                         .copied()
-                        .filter(|m| !other_know.contains(m))
-                        .chain(
-                            other_know
-                                .iter()
-                                .copied()
-                                .filter(|_| rng.gen_bool(CHANCE_REAFFIRM_PROBABILITY)),
-                        )
-                        .collect();
-                    if !gossip_messages.is_empty() {
+                        .partition(|m| other_know.contains(m));
+                    eprintln!("notify of {}/{}", notify_of.len(), self.messages.len());
+
+                    // tell neighbor about some nodes we both know,
+                    // so they gradually learn what we know
+                    let rng = &mut rand::thread_rng();
+                    let additonal_cap = ((notify_of.len() as f64 * CAP_RATIO) as u32) + CAP_FLOOR;
+                    let already_known_len = u32::try_from(already_known.len())
+                        .context("too many `already_known` message elements to fit in u32!!")?;
+                    notify_of.extend(already_known.iter().copied().filter(|_| {
+                        rng.gen_ratio(additonal_cap.min(already_known_len), already_known_len)
+                    }));
+
+                    if !notify_of.is_empty() {
                         Message {
                             src: self.node_id.clone(),
                             dest: neighbor.clone(),
@@ -129,7 +134,7 @@ impl Node for Broadcast {
                                 msg_id: None,
                                 in_reply_to: None,
                                 payload: Payload::Gossip {
-                                    messages: gossip_messages,
+                                    messages: notify_of,
                                 },
                             },
                         }

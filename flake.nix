@@ -89,9 +89,17 @@
           ${assert_one_binary_input}
           ${maelstrom}/bin/maelstrom test -w broadcast --bin $1 --node-count 1 --time-limit 20 --rate 10
         '';
-        maelstrom-test-broadcast = pkgs.writeShellScriptBin "test-broadcast" ''
+        maelstrom-test-broadcast-connected = pkgs.writeShellScriptBin "test-broadcast-connected" ''
           ${assert_one_binary_input}
           ${maelstrom}/bin/maelstrom test -w broadcast --bin $1 --node-count 5 --time-limit 20 --rate 10
+        '';
+        maelstrom-test-broadcast = pkgs.writeShellScriptBin "test-broadcast" ''
+          ${assert_one_binary_input}
+          ${maelstrom}/bin/maelstrom test -w broadcast --bin $1 --node-count 5 --time-limit 20 --rate 10 --nemesis partition
+        '';
+        maelstrom-test-broadcast-stress = pkgs.writeShellScriptBin "test-broadcast-stress" ''
+          ${assert_one_binary_input}
+          ${maelstrom}/bin/maelstrom test -w broadcast --bin $1 --node-count 25 --time-limit 20 --rate 100 --latency 100
         '';
       };
       maelstrom-tests-values = pkgs.lib.attrValues maelstrom-tests;
@@ -100,9 +108,15 @@
         set -e
 
         ${maelstrom-tests.maelstrom-test-echo}/bin/test-echo ${crate.package}/bin/echo
+
         ${maelstrom-tests.maelstrom-test-unique}/bin/test-unique ${crate.package}/bin/unique
-        ${maelstrom-tests.maelstrom-test-broadcast-single}/bin/test-broadcast-single ${crate.package}/bin/broadcast
-        ${maelstrom-tests.maelstrom-test-broadcast}/bin/test-broadcast ${crate.package}/bin/broadcast
+
+        # NOTE: These are now redundant, see below
+        # ${maelstrom-tests.maelstrom-test-broadcast-single}/bin/test-broadcast-single ${crate.package}/bin/broadcast
+        # ${maelstrom-tests.maelstrom-test-broadcast-connected}/bin/test-broadcast-connected ${crate.package}/bin/broadcast
+        # ${maelstrom-tests.maelstrom-test-broadcast}/bin/test-broadcast ${crate.package}/bin/broadcast
+        ${maelstrom-tests.maelstrom-test-broadcast-stress}/bin/test-broadcast-stress ${crate.package}/bin/broadcast
+
       '';
 
       #
