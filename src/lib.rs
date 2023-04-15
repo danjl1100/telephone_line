@@ -73,31 +73,85 @@ pub struct Init {
     pub node_ids: Vec<String>,
 }
 
-pub trait Node<S = ()> {
-    type Payload: Serialize + DeserializeOwned;
+enum MessageEvent<P, U = Never> {
+    Message(Message<P>),
+    Event(U),
+}
+// impl<P> MessageEvent<P, Never> {
+//     pub fn into_message(self) -> Message<P> {
+//         match self {
+//             MessageEvent::Message(message) => message,
+//             MessageEvent::Event(never) => match never {},
+//         }
+//     }
+// }
 
-    fn from_init(init: Init, msg_id: usize, start: S) -> Self
+pub type NeverSender<P> = EventSender<P, Never>;
+pub enum Never {}
+
+struct Shutdown;
+
+pub struct EventSender<P, T>(
+    std::sync::mpsc::Sender<anyhow::Result<Result<MessageEvent<P, T>, Shutdown>>>,
+);
+pub struct EventSendError;
+impl<P, T> EventSender<P, T> {
+    pub fn send(&mut self, event: T) -> Result<(), EventSendError> {
+        self.0
+            .send(Ok(Ok(MessageEvent::Event(event))))
+            .map_err(|_| EventSendError)
+    }
+}
+
+pub trait Node<S = ()> {
+    type Payload: Serialize + DeserializeOwned + Send + 'static;
+    type Event: Send + 'static;
+
+    fn from_init(
+        init: Init,
+        msg_id: usize,
+        start: S,
+        event_tx: EventSender<Self::Payload, Self::Event>,
+    ) -> Self
     where
         Self: Sized;
 
-    fn step(
+    fn step_message(
         &mut self,
         message: Message<Self::Payload>,
         output: &mut impl std::io::Write,
     ) -> anyhow::Result<()>;
+
+    fn step_event(
+        &mut self,
+        event: Self::Event,
+        output: &mut impl std::io::Write,
+    ) -> anyhow::Result<()>;
+}
+
+fn parse_message<P>(line_result: Result<String, std::io::Error>) -> anyhow::Result<Message<P>>
+where
+    P: DeserializeOwned,
+{
+    let line = line_result.context("read from stdin")?;
+    let message = Message::from_json(&line).context("message")?;
+    Ok(message)
 }
 
 pub fn main_loop<N, S>(start: S) -> anyhow::Result<()>
 where
     N: Node<S>,
 {
-    let stdin = std::io::stdin().lock();
-    let mut stdin = stdin.lines();
-
     let mut stdout = std::io::stdout().lock();
     let mut msg_id = 0;
 
+    let (input_tx, input_rx) = std::sync::mpsc::channel();
+    let event_tx = EventSender(input_tx.clone());
+
     let mut node: N = {
+        let stdin = std::io::stdin().lock();
+        let mut stdin = stdin.lines();
+
         let init_message = stdin
             .next()
             .expect("initial message not present on stdin")
@@ -112,13 +166,33 @@ where
 
         reply.send(&mut stdout).context("init_ok reply")?;
 
-        Node::from_init(init, msg_id, start)
+        Node::from_init(init, msg_id, start, event_tx)
     };
 
-    for line in stdin {
-        let line = line.context("read from stdin")?;
-        let message = Message::from_json(&line).context("message")?;
-        node.step(message, &mut stdout)?;
+    std::thread::spawn(move || {
+        let stdin = std::io::stdin().lock();
+        let stdin = stdin.lines();
+        for line_result in stdin {
+            let result = parse_message(line_result)
+                .map(MessageEvent::Message)
+                .map(Ok);
+            if input_tx.send(result).is_err() {
+                break;
+            }
+        }
+        println!("end of input");
+        let _ = input_tx.send(Ok(Err(Shutdown)));
+    });
+
+    while let Ok(input_result) = input_rx.recv() {
+        match input_result? {
+            Ok(input) => match input {
+                MessageEvent::Message(message) => node.step_message(message, &mut stdout)?,
+                MessageEvent::Event(event) => node.step_event(event, &mut stdout)?,
+            },
+            Err(Shutdown) => break,
+        }
     }
+
     Ok(())
 }

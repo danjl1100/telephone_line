@@ -1,6 +1,6 @@
 use anyhow::bail;
 use serde::{Deserialize, Serialize};
-use telephone_line::{main_loop, Message, Node};
+use telephone_line::{main_loop, Message, Never, NeverSender, Node};
 
 struct Unique {
     msg_id: usize,
@@ -9,8 +9,14 @@ struct Unique {
 
 impl Node for Unique {
     type Payload = Payload;
+    type Event = Never;
 
-    fn from_init(init: telephone_line::Init, msg_id: usize, _start: ()) -> Self
+    fn from_init(
+        init: telephone_line::Init,
+        msg_id: usize,
+        _start: (),
+        _event_tx: NeverSender<Self::Payload>,
+    ) -> Self
     where
         Self: Sized,
     {
@@ -20,7 +26,7 @@ impl Node for Unique {
         }
     }
 
-    fn step(
+    fn step_message(
         &mut self,
         message: Message<Self::Payload>,
         output: &mut impl std::io::Write,
@@ -34,6 +40,14 @@ impl Node for Unique {
             }
             Payload::GenerateOk { .. } => bail!("unexpected GenerateOk from {}", reply.dest),
         }
+    }
+
+    fn step_event(
+        &mut self,
+        event: Self::Event,
+        _output: &mut impl std::io::Write,
+    ) -> anyhow::Result<()> {
+        match event {}
     }
 }
 

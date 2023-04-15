@@ -1,6 +1,6 @@
 use anyhow::bail;
 use serde::{Deserialize, Serialize};
-use telephone_line::{main_loop, Message, Node};
+use telephone_line::{main_loop, Message, Never, NeverSender, Node};
 
 struct Echo {
     msg_id: usize,
@@ -8,15 +8,21 @@ struct Echo {
 
 impl Node for Echo {
     type Payload = Payload;
+    type Event = Never;
 
-    fn from_init(_init: telephone_line::Init, msg_id: usize, _start: ()) -> Self
+    fn from_init(
+        _init: telephone_line::Init,
+        msg_id: usize,
+        _start: (),
+        _event_tx: NeverSender<Self::Payload>,
+    ) -> Self
     where
         Self: Sized,
     {
         Self { msg_id }
     }
 
-    fn step(
+    fn step_message(
         &mut self,
         message: Message<Self::Payload>,
         output: &mut impl std::io::Write,
@@ -29,6 +35,14 @@ impl Node for Echo {
             }
             Payload::EchoOk { .. } => bail!("unexpected EchoOk from {}", reply.dest),
         }
+    }
+
+    fn step_event(
+        &mut self,
+        event: Self::Event,
+        _output: &mut impl std::io::Write,
+    ) -> anyhow::Result<()> {
+        match event {}
     }
 }
 
