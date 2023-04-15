@@ -97,10 +97,70 @@
           ${assert_one_binary_input}
           ${maelstrom}/bin/maelstrom test -w broadcast --bin $1 --node-count 5 --time-limit 20 --rate 10 --nemesis partition
         '';
-        maelstrom-test-broadcast-stress = pkgs.writeShellScriptBin "test-broadcast-stress" ''
-          ${assert_one_binary_input}
-          ${maelstrom}/bin/maelstrom test -w broadcast --bin $1 --node-count 25 --time-limit 20 --rate 100 --latency 100
-        '';
+        maelstrom-test-broadcast-stress = let
+          numeric_check_lt = {
+            value,
+            threshold,
+            label,
+            units,
+          }: ''
+            if (( $(echo "${value} > ${threshold}" | ${pkgs.bc}/bin/bc -l) )); then
+              echo "${label} is out of range: ${value} (should be within ${threshold} ${units})"
+              FAIL=1
+            fi
+          '';
+        in
+          pkgs.writeShellScriptBin "test-broadcast-stress" ''
+            # exit on first error
+            set -e
+            ${assert_one_binary_input}
+            ${maelstrom}/bin/maelstrom test -w broadcast --bin $1 --node-count 25 --time-limit 20 --rate 100 --latency 100 | tee tmp.out
+
+            # analysis
+            grep "msgs-per-op" tmp.out
+            grep stable-latencies tmp.out -A 4
+
+            set +x
+            msgs_per_op1=$(grep "msgs-per-op" tmp.out | cut -d "p" -f3 | cut -d "}" -f1 | xargs echo | cut -d " " -f 1)
+            msgs_per_op2=$(grep "msgs-per-op" tmp.out | cut -d "p" -f3 | cut -d "}" -f1 | xargs echo | cut -d " " -f 2)
+            latency_median=$(grep stable-latencies tmp.out -A 4 | grep "0.5 " | xargs echo | cut -d " " -f 2- | cut -d "," -f1)
+            latency_max=$(grep stable-latencies tmp.out -A 4 | grep "1 " | xargs echo | cut -d " " -f 2- | cut -d "}" -f1)
+
+            FAIL=0
+            ${numeric_check_lt {
+              value = "$msgs_per_op1";
+              threshold = "30";
+              label = "Messages per op (#1)";
+              units = "messages per op";
+            }}
+            ${numeric_check_lt {
+              value = "$msgs_per_op2";
+              threshold = "30";
+              label = "Messages per op (#2)";
+              units = "messages per op";
+            }}
+            ${numeric_check_lt {
+              value = "$latency_median";
+              threshold = "400";
+              label = "Latency Median";
+              units = "ms";
+            }}
+            ${numeric_check_lt {
+              value = "$latency_max";
+              threshold = "600";
+              label = "Latency Max";
+              units = "ms";
+            }}
+
+            if [ $FAIL -eq 0 ]; then
+              echo "Output analysis check passed."
+              rm tmp.out
+            else
+              echo "Output analysis check failed, persisting output file tmp.out"
+            fi
+
+            exit $FAIL
+          '';
       };
       maelstrom-tests-values = pkgs.lib.attrValues maelstrom-tests;
       maelstrom-regression = pkgs.writeShellScriptBin "maelstrom-regression" ''
@@ -168,6 +228,9 @@
         // {
           inherit maelstrom;
           tests = maelstrom-regression;
+          test-broadcast-stress = pkgs.writeShellScriptBin "test-broadcast-stress" ''
+            ${maelstrom-tests.maelstrom-test-broadcast-stress}/bin/test-broadcast-stress ${crate.package}/bin/broadcast
+          '';
           default = crate.package;
         };
     });
