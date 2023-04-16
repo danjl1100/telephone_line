@@ -97,24 +97,50 @@
           ${assert_one_binary_input}
           ${maelstrom}/bin/maelstrom test -w broadcast --bin $1 --node-count 5 --time-limit 20 --rate 10 --nemesis partition
         '';
-        maelstrom-test-broadcast-stress = let
-          numeric_check_lt = {
-            value,
-            threshold,
-            label,
-            units,
-          }: ''
-            if (( $(echo "${value} > ${threshold}" | ${pkgs.bc}/bin/bc -l) )); then
-              echo "${label} is out of range: ${value} (should be within ${threshold} ${units})"
-              FAIL=1
-            fi
-          '';
-        in
+
+        maelstrom-test-broadcast-stress-low-latency = maelstrom-test-broadcast-stress-generic {
+          args = ["--low-latency"];
+          msgs_per_op = 30;
+          latency_median = 400;
+          latency_max = 600;
+        };
+        maelstrom-test-broadcast-stress-low-bandwidth = maelstrom-test-broadcast-stress-generic {
+          args = ["--low-bandwidth"];
+          msgs_per_op = 20;
+          latency_median = 1000;
+          latency_max = 2000;
+        };
+        # TODO add test for the "Default" values to meet both low-latency and low-bandwidth criteria
+        # --> change "maelstrom-test-broadcast-stress-generic" to return a derivation to construct the `tmp.out` file,
+        #     so that multiple analysis criteria can be applied for the single log output
+      };
+      maelstrom-test-broadcast-stress-generic = let
+        numeric_check_lt = {
+          value,
+          threshold,
+          label,
+          units,
+        }: ''
+          if (( $(echo "${value} >= ${toString threshold}" | ${pkgs.bc}/bin/bc -l) )); then
+            echo "${label} is out of range: ${value} (should be below ${toString threshold} ${units})"
+            FAIL=1
+          fi
+        '';
+      in
+        {
+          args ? [],
+          msgs_per_op,
+          latency_median,
+          latency_max,
+        }:
           pkgs.writeShellScriptBin "test-broadcast-stress" ''
             # exit on first error
             set -e
             ${assert_one_binary_input}
-            ${maelstrom}/bin/maelstrom test -w broadcast --bin $1 --node-count 25 --time-limit 20 --rate 100 --latency 100 | tee tmp.out
+            ${maelstrom}/bin/maelstrom test -w broadcast --bin $1 \
+              --node-count 25 --time-limit 20 --rate 100 --latency 100 \
+              -- ${pkgs.lib.escapeShellArgs args} \
+              | tee tmp.out
 
             # analysis
             grep "msgs-per-op" tmp.out
@@ -129,25 +155,25 @@
             FAIL=0
             ${numeric_check_lt {
               value = "$msgs_per_op1";
-              threshold = "30";
+              threshold = msgs_per_op;
               label = "Messages per op (#1)";
               units = "messages per op";
             }}
             ${numeric_check_lt {
               value = "$msgs_per_op2";
-              threshold = "30";
+              threshold = msgs_per_op;
               label = "Messages per op (#2)";
               units = "messages per op";
             }}
             ${numeric_check_lt {
               value = "$latency_median";
-              threshold = "400";
+              threshold = latency_median;
               label = "Latency Median";
               units = "ms";
             }}
             ${numeric_check_lt {
               value = "$latency_max";
-              threshold = "600";
+              threshold = latency_max;
               label = "Latency Max";
               units = "ms";
             }}
@@ -161,7 +187,7 @@
 
             exit $FAIL
           '';
-      };
+
       maelstrom-tests-values = pkgs.lib.attrValues maelstrom-tests;
       maelstrom-regression = pkgs.writeShellScriptBin "maelstrom-regression" ''
         # exit on first error
@@ -175,7 +201,8 @@
         # ${maelstrom-tests.maelstrom-test-broadcast-single}/bin/test-broadcast-single ${crate.package}/bin/broadcast
         # ${maelstrom-tests.maelstrom-test-broadcast-connected}/bin/test-broadcast-connected ${crate.package}/bin/broadcast
         # ${maelstrom-tests.maelstrom-test-broadcast}/bin/test-broadcast ${crate.package}/bin/broadcast
-        ${maelstrom-tests.maelstrom-test-broadcast-stress}/bin/test-broadcast-stress ${crate.package}/bin/broadcast
+        ${maelstrom-tests.maelstrom-test-broadcast-stress-low-latency}/bin/test-broadcast-stress ${crate.package}/bin/broadcast
+        ${maelstrom-tests.maelstrom-test-broadcast-stress-low-bandwidth}/bin/test-broadcast-stress ${crate.package}/bin/broadcast
 
       '';
 
@@ -229,7 +256,10 @@
           inherit maelstrom;
           tests = maelstrom-regression;
           test-broadcast-stress = pkgs.writeShellScriptBin "test-broadcast-stress" ''
-            ${maelstrom-tests.maelstrom-test-broadcast-stress}/bin/test-broadcast-stress ${crate.package}/bin/broadcast
+            # exit on first error
+            set -e
+            ${maelstrom-tests.maelstrom-test-broadcast-stress-low-latency}/bin/test-broadcast-stress ${crate.package}/bin/broadcast
+            ${maelstrom-tests.maelstrom-test-broadcast-stress-low-bandwidth}/bin/test-broadcast-stress ${crate.package}/bin/broadcast
           '';
           default = crate.package;
         };

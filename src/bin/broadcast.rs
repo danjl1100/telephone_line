@@ -8,36 +8,60 @@ use std::{
 use telephone_line::{main_loop, Body, EventSender, Message, Node};
 
 struct Broadcast {
+    params: Params,
     msg_id: usize,
     node_id: String,
     messages: HashSet<usize>,
     others_know: HashMap<String, HashSet<usize>>,
 }
+#[derive(Clone, Copy)]
+struct Params {
+    gossip_interval: Duration,
+    additional_cap_ratio: f64,
+    additional_cap_floor: u32,
+}
+impl Params {
+    fn calculate_cap(self, notify_of_len: usize) -> u32 {
+        let Params {
+            additional_cap_ratio,
+            additional_cap_floor,
+            ..
+        } = self;
+        ((notify_of_len as f64 * additional_cap_ratio) as u32) + additional_cap_floor
+    }
+}
 
-const GOSSIP_INTERVAL: Duration = Duration::from_millis(400);
+const PARAMS_DEFAULT: Params = Params {
+    gossip_interval: Duration::from_millis(530),
+    additional_cap_ratio: 0.1,
+    additional_cap_floor: 10,
+};
+const PARAMS_LOW_LATENCY: Params = Params {
+    gossip_interval: Duration::from_millis(400),
+    ..PARAMS_DEFAULT
+};
+const PARAMS_LOW_BANDWIDTH: Params = Params {
+    gossip_interval: Duration::from_millis(1800),
+    ..PARAMS_DEFAULT
+};
 
-const CAP_RATIO: f64 = 0.1;
-const CAP_FLOOR: u32 = 10;
-
-impl Node for Broadcast {
+impl Node<Params> for Broadcast {
     type Payload = Payload;
     type Event = Event;
 
     fn from_init(
         init: telephone_line::Init,
         msg_id: usize,
-        _start: (),
+        params: Params,
         mut event_tx: EventSender<Self::Payload, Self::Event>,
     ) -> Self
     where
         Self: Sized,
     {
         std::thread::spawn(move || loop {
-            std::thread::sleep(GOSSIP_INTERVAL);
+            std::thread::sleep(params.gossip_interval);
 
-            let result = event_tx.send(Event::StartGossip);
-
-            if result.is_err() {
+            if event_tx.send(Event::StartGossip).is_err() {
                 break;
             }
         });
@@ -47,6 +71,7 @@ impl Node for Broadcast {
             .map(|n| (n, HashSet::new()))
             .collect();
         Self {
+            params,
             msg_id,
             node_id: init.node_id,
             messages: HashSet::new(),
@@ -123,11 +148,11 @@ impl Node for Broadcast {
                     // tell neighbor about some nodes we both know,
                     // so they gradually learn what we know
                     let rng = &mut rand::thread_rng();
-                    let additonal_cap = ((notify_of.len() as f64 * CAP_RATIO) as u32) + CAP_FLOOR;
+                    let additional_cap = self.params.calculate_cap(notify_of.len());
                     let already_known_len = u32::try_from(already_known.len())
                         .context("too many `already_known` message elements to fit in u32!!")?;
                     notify_of.extend(already_known.iter().copied().filter(|_| {
-                        rng.gen_ratio(additonal_cap.min(already_known_len), already_known_len)
+                        rng.gen_ratio(additional_cap.min(already_known_len), already_known_len)
                     }));
 
                     if !notify_of.is_empty() {
@@ -176,5 +201,23 @@ enum Event {
 }
 
 fn main() -> anyhow::Result<()> {
-    main_loop::<Broadcast, _>(())
+    const MODE_LOW_LATENCY: &str = "--low-latency";
+    const MODE_LOW_BANDWIDTH: &str = "--low-bandwidth";
+    let mut args = std::env::args();
+
+    let executable_name = args.next();
+    let executable_name = executable_name.as_deref().unwrap_or("[binary]");
+
+    let params = match args.next() {
+        Some(s) if s == MODE_LOW_BANDWIDTH => PARAMS_LOW_BANDWIDTH,
+        Some(s) if s == MODE_LOW_LATENCY => PARAMS_LOW_LATENCY,
+        None => PARAMS_DEFAULT,
+        Some(unknown) => bail!("unknown argument {unknown:?}"),
+    };
+
+    if let Some(extra) = args.next() {
+        bail!("unexpected extra argument {extra:?}, USAGE {executable_name} [MODE], where mode is one of {MODE_LOW_LATENCY}, {MODE_LOW_BANDWIDTH}");
+    }
+
+    main_loop::<Broadcast, _>(params)
 }
