@@ -70,17 +70,45 @@
         ${maelstrom-bin}/maelstrom $*
       '';
 
-      # assert_one_binary_input = ''
-      #   if [ $# -ne 1 ]; then
-      #     echo "USAGE: $(basename $0) BINARY"
-      #     exit 1
-      #   fi
-      #   set -x
-      # '';
-      maelstrom-tests = {
-        maelstrom-test-echo = pkgs.writeShellScriptBin "test-echo" ''
-          ${maelstrom}/bin/maelstrom test -w echo --bin ''${1:-target/debug/echo} --node-count 1 --time-limit 10
+      maelstrom-cases = {
+        echo = {
+          bin = "echo";
+          maelstrom-args = [
+            "-w echo"
+            "--node-count 1"
+            "--time-limit 10"
+          ];
+        };
+      };
+      maelstrom-script = label: {
+        bin,
+        maelstrom-args,
+      }:
+        pkgs.writeShellScriptBin "test-${label}" ''
+          cargo build --bin ${pkgs.lib.escapeShellArg bin} \
+          && \
+            ${maelstrom}/bin/maelstrom test \
+            ${pkgs.lib.escapeShellArgs maelstrom-args} \
+            --bin ''${1:-target/debug/${bin}}
         '';
+      maelstrom-derivation = label: {
+        bin,
+        maelstrom-args,
+      }:
+        pkgs.writeShellScriptBin "test-derivation-${label}" ''
+          ${maelstrom}/bin/maelstrom test \
+            ${pkgs.lib.escapeShellArgs (maelstrom-args
+            ++ [
+              "--bin ${crate.package}/bin/${bin}"
+            ])}
+        '';
+      maelstrom-tests = {
+        maelstrom-test-echo = maelstrom-script "echo" {
+          inherit (maelstrom-cases.echo) bin maelstrom-args;
+        };
+        # maelstrom-test-echo = pkgs.writeShellScriptBin "test-echo" ''
+        #   ${maelstrom}/bin/maelstrom test -w echo --bin ''${1:-target/debug/echo} --node-count 1 --time-limit 10
+        # '';
         maelstrom-test-unique = pkgs.writeShellScriptBin "test-unique" ''
           ${maelstrom}/bin/maelstrom test -w unique-ids --bin ''${1:-target/debug/unique} --time-limit 30 --rate 1000 --node-count 3 --availability total --nemesis partition
         '';
@@ -251,6 +279,9 @@
         maelstrom-tests
         // {
           inherit maelstrom;
+          test-echo = maelstrom-derivation "echo" {
+            inherit (maelstrom-cases.echo) bin maelstrom-args;
+          };
           tests = maelstrom-regression;
           test-broadcast-stress = pkgs.writeShellScriptBin "test-broadcast-stress" ''
             # exit on first error
