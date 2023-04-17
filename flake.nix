@@ -69,33 +69,29 @@
           ]}
         ${maelstrom-bin}/maelstrom $*
       '';
-      assert_one_binary_input = ''
-        if [ $# -ne 1 ]; then
-          echo "USAGE: $(basename $0) BINARY"
-          exit 1
-        fi
-        set -x
-      '';
+
+      # assert_one_binary_input = ''
+      #   if [ $# -ne 1 ]; then
+      #     echo "USAGE: $(basename $0) BINARY"
+      #     exit 1
+      #   fi
+      #   set -x
+      # '';
       maelstrom-tests = {
         maelstrom-test-echo = pkgs.writeShellScriptBin "test-echo" ''
-          ${assert_one_binary_input}
-          ${maelstrom}/bin/maelstrom test -w echo --bin $1 --node-count 1 --time-limit 10
+          ${maelstrom}/bin/maelstrom test -w echo --bin ''${1:-target/debug/echo} --node-count 1 --time-limit 10
         '';
         maelstrom-test-unique = pkgs.writeShellScriptBin "test-unique" ''
-          ${assert_one_binary_input}
-          ${maelstrom}/bin/maelstrom test -w unique-ids --bin $1 --time-limit 30 --rate 1000 --node-count 3 --availability total --nemesis partition
+          ${maelstrom}/bin/maelstrom test -w unique-ids --bin ''${1:-target/debug/unique} --time-limit 30 --rate 1000 --node-count 3 --availability total --nemesis partition
         '';
         maelstrom-test-broadcast-single = pkgs.writeShellScriptBin "test-broadcast-single" ''
-          ${assert_one_binary_input}
-          ${maelstrom}/bin/maelstrom test -w broadcast --bin $1 --node-count 1 --time-limit 20 --rate 10
+          ${maelstrom}/bin/maelstrom test -w broadcast --bin ''${1:-target/debug/broadcast} --node-count 1 --time-limit 20 --rate 10
         '';
         maelstrom-test-broadcast-connected = pkgs.writeShellScriptBin "test-broadcast-connected" ''
-          ${assert_one_binary_input}
-          ${maelstrom}/bin/maelstrom test -w broadcast --bin $1 --node-count 5 --time-limit 20 --rate 10
+          ${maelstrom}/bin/maelstrom test -w broadcast --bin ''${1:-target/debug/broadcast} --node-count 5 --time-limit 20 --rate 10
         '';
         maelstrom-test-broadcast = pkgs.writeShellScriptBin "test-broadcast" ''
-          ${assert_one_binary_input}
-          ${maelstrom}/bin/maelstrom test -w broadcast --bin $1 --node-count 5 --time-limit 20 --rate 10 --nemesis partition
+          ${maelstrom}/bin/maelstrom test -w broadcast --bin ''${1:-target/debug/broadcast} --node-count 5 --time-limit 20 --rate 10 --nemesis partition
         '';
 
         maelstrom-test-broadcast-stress-low-latency = maelstrom-test-broadcast-stress-generic {
@@ -121,8 +117,10 @@
           label,
           units,
         }: ''
-          if (( $(echo "${value} >= ${toString threshold}" | ${pkgs.bc}/bin/bc -l) )); then
-            echo "${label} is out of range: ${value} (should be below ${toString threshold} ${units})"
+          if (( $(echo "${value} < ${toString threshold}" | ${pkgs.bc}/bin/bc -l) )); then
+            echo "[PASS] ${label}: ${value} (below goal of ${toString threshold} ${units})"
+          else
+            echo "[FAIL] ${label} is out of range: ${value} (should be below goal of ${toString threshold} ${units})"
             FAIL=1
           fi
         '';
@@ -136,8 +134,7 @@
           pkgs.writeShellScriptBin "test-broadcast-stress" ''
             # exit on first error
             set -e
-            ${assert_one_binary_input}
-            ${maelstrom}/bin/maelstrom test -w broadcast --bin $1 \
+            ${maelstrom}/bin/maelstrom test -w broadcast --bin ''${1:-target/debug/broadcast} \
               --node-count 25 --time-limit 20 --rate 100 --latency 100 \
               -- ${pkgs.lib.escapeShellArgs args} \
               | tee tmp.out
