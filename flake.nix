@@ -56,8 +56,8 @@
       #
       # Maelstrom package / test cases
       #
-      maelstrom-no-env = pkgs.stdenvNoCC.mkDerivation {
-        name = "maelstrom-no-env";
+      maelstrom = pkgs.stdenvNoCC.mkDerivation {
+        name = "maelstrom";
         src = maelstrom-bin;
         buildPhase = ''
           mkdir -p target
@@ -83,19 +83,6 @@
           cp -r target $out/bin
         '';
       };
-      maelstrom = pkgs.writeShellScriptBin "maelstrom" ''
-        PATH=${pkgs.lib.strings.makeSearchPath "bin"
-          [
-            pkgs.bash
-            pkgs.coreutils #dirname
-            pkgs.git
-
-            pkgs.jdk
-            pkgs.graphviz
-            pkgs.gnuplot
-          ]}
-        ${maelstrom-bin}/maelstrom $*
-      '';
 
       maelstrom-cases = {
         echo = {
@@ -114,6 +101,34 @@
             "--rate 1000"
             "--node-count 3"
             "--availability total"
+            "--nemesis partition"
+          ];
+        };
+        broadcast-single = {
+          bin = "broadcast";
+          maelstrom-args = [
+            "-w broadcast"
+            "--node-count 1"
+            "--time-limit 20"
+            "--rate 10"
+          ];
+        };
+        broadcast-connected = {
+          bin = "broadcast";
+          maelstrom-args = [
+            "-w broadcast"
+            "--node-count 5"
+            "--time-limit 20"
+            "--rate 10"
+          ];
+        };
+        broadcast = {
+          bin = "broadcast";
+          maelstrom-args = [
+            "-w broadcast"
+            "--node-count 5"
+            "--time-limit 20"
+            "--rate 10"
             "--nemesis partition"
           ];
         };
@@ -137,7 +152,7 @@
           name = "test-${label}";
           phases = ["buildPhase" "installPhase"];
           nativeBuildInputs = [
-            maelstrom-no-env
+            maelstrom
           ];
           buildPhase = ''
             maelstrom test \
@@ -145,6 +160,7 @@
               ++ [
                 "--bin ${crate.package}/bin/${bin}"
               ])}
+            # remove extraneous symlinks
             rm store/current
             rm store/latest
             find store -name 'latest' -exec rm {} \;
@@ -161,6 +177,15 @@
         unique = maelstrom-derivation "unique" {
           inherit (maelstrom-cases.unique) bin maelstrom-args;
         };
+        broadcast-single = maelstrom-derivation "broadcast-single" {
+          inherit (maelstrom-cases.broadcast-single) bin maelstrom-args;
+        };
+        broadcast-connected = maelstrom-derivation "broadcast-connected" {
+          inherit (maelstrom-cases.broadcast-connected) bin maelstrom-args;
+        };
+        broadcast = maelstrom-derivation "broadcast" {
+          inherit (maelstrom-cases.broadcast) bin maelstrom-args;
+        };
       };
       maelstrom-test-scripts = {
         maelstrom-test-echo = maelstrom-script "echo" {
@@ -169,15 +194,15 @@
         maelstrom-test-unique = maelstrom-script "unique" {
           inherit (maelstrom-cases.unique) bin maelstrom-args;
         };
-        maelstrom-test-broadcast-single = pkgs.writeShellScriptBin "test-broadcast-single" ''
-          ${maelstrom}/bin/maelstrom test -w broadcast --bin ''${1:-target/debug/broadcast} --node-count 1 --time-limit 20 --rate 10
-        '';
-        maelstrom-test-broadcast-connected = pkgs.writeShellScriptBin "test-broadcast-connected" ''
-          ${maelstrom}/bin/maelstrom test -w broadcast --bin ''${1:-target/debug/broadcast} --node-count 5 --time-limit 20 --rate 10
-        '';
-        maelstrom-test-broadcast = pkgs.writeShellScriptBin "test-broadcast" ''
-          ${maelstrom}/bin/maelstrom test -w broadcast --bin ''${1:-target/debug/broadcast} --node-count 5 --time-limit 20 --rate 10 --nemesis partition
-        '';
+        maelstrom-test-broadcast-single = maelstrom-script "broadcast-single" {
+          inherit (maelstrom-cases.broadcast-single) bin maelstrom-args;
+        };
+        maelstrom-test-broadcast-connected = maelstrom-script "broadcast-connected" {
+          inherit (maelstrom-cases.broadcast-connected) bin maelstrom-args;
+        };
+        maelstrom-test-broadcast = maelstrom-script "broadcast" {
+          inherit (maelstrom-cases.broadcast) bin maelstrom-args;
+        };
 
         maelstrom-test-broadcast-stress-low-latency = maelstrom-test-broadcast-stress-generic {
           args = ["--low-latency"];
@@ -345,7 +370,7 @@
       packages =
         maelstrom-test-scripts
         // {
-          inherit maelstrom maelstrom-no-env;
+          inherit maelstrom;
           test-echo = maelstrom-test-derivations.echo;
           test-unique = maelstrom-test-derivations.unique;
           tests = regression-tests;
@@ -362,7 +387,7 @@
             trap 'rm -r "$SCRATCH"' EXIT
             echo "Setup scratch dir $SCRATCH"
             cd "$SCRATCH"
-            ${maelstrom-no-env}/bin/maelstrom serve
+            ${maelstrom}/bin/maelstrom serve
           '';
           default = crate.package;
         };
