@@ -56,6 +56,33 @@
       #
       # Maelstrom package / test cases
       #
+      maelstrom-no-env = pkgs.stdenvNoCC.mkDerivation {
+        name = "maelstrom-no-env";
+        src = maelstrom-bin;
+        buildPhase = ''
+          mkdir -p target
+          cp -r $src/lib target/
+          cp $src/maelstrom target/maelstrom-bin
+          echo "
+          PATH=${pkgs.lib.strings.makeSearchPath "bin"
+            [
+              pkgs.bash
+              pkgs.coreutils #dirname
+              pkgs.git
+
+              pkgs.jdk
+              pkgs.graphviz
+              pkgs.gnuplot
+            ]}
+          $out/bin/maelstrom-bin \$*
+          " > target/maelstrom
+          chmod +x target/maelstrom
+        '';
+        installPhase = ''
+          mkdir -p $out
+          cp -r target $out/bin
+        '';
+      };
       maelstrom = pkgs.writeShellScriptBin "maelstrom" ''
         PATH=${pkgs.lib.strings.makeSearchPath "bin"
           [
@@ -79,6 +106,17 @@
             "--time-limit 10"
           ];
         };
+        unique = {
+          bin = "unique";
+          maelstrom-args = [
+            "-w unique-ids"
+            "--time-limit 30"
+            "--rate 1000"
+            "--node-count 3"
+            "--availability total"
+            "--nemesis partition"
+          ];
+        };
       };
       maelstrom-script = label: {
         bin,
@@ -95,23 +133,42 @@
         bin,
         maelstrom-args,
       }:
-        pkgs.writeShellScriptBin "test-derivation-${label}" ''
-          ${maelstrom}/bin/maelstrom test \
-            ${pkgs.lib.escapeShellArgs (maelstrom-args
-            ++ [
-              "--bin ${crate.package}/bin/${bin}"
-            ])}
-        '';
-      maelstrom-tests = {
+        pkgs.stdenvNoCC.mkDerivation {
+          name = "test-${label}";
+          phases = ["buildPhase" "installPhase"];
+          nativeBuildInputs = [
+            maelstrom-no-env
+          ];
+          buildPhase = ''
+            maelstrom test \
+              ${pkgs.lib.escapeShellArgs (maelstrom-args
+              ++ [
+                "--bin ${crate.package}/bin/${bin}"
+              ])}
+            rm store/current
+            rm store/latest
+            find store -name 'latest' -exec rm {} \;
+          '';
+          installPhase = ''
+            mkdir -p $out
+            cp -r store $out/
+          '';
+        };
+      maelstrom-test-derivations = {
+        echo = maelstrom-derivation "echo" {
+          inherit (maelstrom-cases.echo) bin maelstrom-args;
+        };
+        unique = maelstrom-derivation "unique" {
+          inherit (maelstrom-cases.unique) bin maelstrom-args;
+        };
+      };
+      maelstrom-test-scripts = {
         maelstrom-test-echo = maelstrom-script "echo" {
           inherit (maelstrom-cases.echo) bin maelstrom-args;
         };
-        # maelstrom-test-echo = pkgs.writeShellScriptBin "test-echo" ''
-        #   ${maelstrom}/bin/maelstrom test -w echo --bin ''${1:-target/debug/echo} --node-count 1 --time-limit 10
-        # '';
-        maelstrom-test-unique = pkgs.writeShellScriptBin "test-unique" ''
-          ${maelstrom}/bin/maelstrom test -w unique-ids --bin ''${1:-target/debug/unique} --time-limit 30 --rate 1000 --node-count 3 --availability total --nemesis partition
-        '';
+        maelstrom-test-unique = maelstrom-script "unique" {
+          inherit (maelstrom-cases.unique) bin maelstrom-args;
+        };
         maelstrom-test-broadcast-single = pkgs.writeShellScriptBin "test-broadcast-single" ''
           ${maelstrom}/bin/maelstrom test -w broadcast --bin ''${1:-target/debug/broadcast} --node-count 1 --time-limit 20 --rate 10
         '';
@@ -213,23 +270,33 @@
             exit $FAIL
           '';
 
-      maelstrom-tests-values = pkgs.lib.attrValues maelstrom-tests;
-      maelstrom-regression = pkgs.writeShellScriptBin "maelstrom-regression" ''
-        # exit on first error
-        set -e
+      regression-tests = pkgs.symlinkJoin {
+        name = "regression-tests";
+        paths =
+          (pkgs.lib.attrValues maelstrom-test-derivations)
+          ++ [
+            (pkgs.writeShellScriptBin "regression-tests" ''
+              echo "[PASS] See maelstrom results store at:"
+              echo -e "\t$(dirname $(dirname $0))/store"
+            '')
+          ];
+      };
+      # regression-tests = pkgs.writeShellScriptBin "regression-tests" ''
+      #   # exit on first error
+      #   set -e
 
-        ${maelstrom-tests.maelstrom-test-echo}/bin/test-echo ${crate.package}/bin/echo
+      #   ${maelstrom-tests.maelstrom-test-echo}/bin/test-echo ${crate.package}/bin/echo
 
-        ${maelstrom-tests.maelstrom-test-unique}/bin/test-unique ${crate.package}/bin/unique
+      #   ${maelstrom-tests.maelstrom-test-unique}/bin/test-unique ${crate.package}/bin/unique
 
-        # NOTE: These are now redundant, see below
-        # ${maelstrom-tests.maelstrom-test-broadcast-single}/bin/test-broadcast-single ${crate.package}/bin/broadcast
-        # ${maelstrom-tests.maelstrom-test-broadcast-connected}/bin/test-broadcast-connected ${crate.package}/bin/broadcast
-        # ${maelstrom-tests.maelstrom-test-broadcast}/bin/test-broadcast ${crate.package}/bin/broadcast
-        ${maelstrom-tests.maelstrom-test-broadcast-stress-low-latency}/bin/test-broadcast-stress ${crate.package}/bin/broadcast
-        ${maelstrom-tests.maelstrom-test-broadcast-stress-low-bandwidth}/bin/test-broadcast-stress ${crate.package}/bin/broadcast
+      #   # NOTE: These are now redundant, see below
+      #   # ${maelstrom-tests.maelstrom-test-broadcast-single}/bin/test-broadcast-single ${crate.package}/bin/broadcast
+      #   # ${maelstrom-tests.maelstrom-test-broadcast-connected}/bin/test-broadcast-connected ${crate.package}/bin/broadcast
+      #   # ${maelstrom-tests.maelstrom-test-broadcast}/bin/test-broadcast ${crate.package}/bin/broadcast
+      #   ${maelstrom-tests.maelstrom-test-broadcast-stress-low-latency}/bin/test-broadcast-stress ${crate.package}/bin/broadcast
+      #   ${maelstrom-tests.maelstrom-test-broadcast-stress-low-bandwidth}/bin/test-broadcast-stress ${crate.package}/bin/broadcast
 
-      '';
+      # '';
 
       #
       # Rust packages
@@ -262,7 +329,7 @@
       devShells.default = pkgs.mkShell {
         packages =
           devShellPackages
-          ++ maelstrom-tests-values
+          ++ (pkgs.lib.attrValues maelstrom-test-scripts)
           ++ [
             (pkgs.writeShellScriptBin "build-test-echo" ''
               set -x
@@ -276,18 +343,26 @@
       };
 
       packages =
-        maelstrom-tests
+        maelstrom-test-scripts
         // {
-          inherit maelstrom;
-          test-echo = maelstrom-derivation "echo" {
-            inherit (maelstrom-cases.echo) bin maelstrom-args;
-          };
-          tests = maelstrom-regression;
+          inherit maelstrom maelstrom-no-env;
+          test-echo = maelstrom-test-derivations.echo;
+          test-unique = maelstrom-test-derivations.unique;
+          tests = regression-tests;
           test-broadcast-stress = pkgs.writeShellScriptBin "test-broadcast-stress" ''
             # exit on first error
             set -e
-            ${maelstrom-tests.maelstrom-test-broadcast-stress-low-latency}/bin/test-broadcast-stress ${crate.package}/bin/broadcast
-            ${maelstrom-tests.maelstrom-test-broadcast-stress-low-bandwidth}/bin/test-broadcast-stress ${crate.package}/bin/broadcast
+            ${maelstrom-test-scripts.maelstrom-test-broadcast-stress-low-latency}/bin/test-broadcast-stress ${crate.package}/bin/broadcast
+            ${maelstrom-test-scripts.maelstrom-test-broadcast-stress-low-bandwidth}/bin/test-broadcast-stress ${crate.package}/bin/broadcast
+          '';
+          serve = pkgs.writeShellScriptBin "maelstrom-serve-tests" ''
+            SCRATCH=$(mktemp -d --suffix=regression-tests)
+            cp -r -L "${regression-tests}/store" "$SCRATCH"
+            chmod -R +w "$SCRATCH"
+            trap 'rm -r "$SCRATCH"' EXIT
+            echo "Setup scratch dir $SCRATCH"
+            cd "$SCRATCH"
+            ${maelstrom-no-env}/bin/maelstrom serve
           '';
           default = crate.package;
         };
