@@ -132,7 +132,7 @@
             "--nemesis partition"
           ];
         };
-        broadcast-stress-low-latency = {
+        broadcast-stress = {
           inherit (broadcast) bin;
           maelstrom-args = [
             "-w broadcast"
@@ -141,11 +141,28 @@
             "--rate 100"
             "--latency 100"
           ];
+          analysis-params = {
+            msgs-per-op = 20;
+            latency-median = 400;
+            latency-max = 600;
+          };
+        };
+        broadcast-stress-low-latency = {
+          inherit (broadcast-stress) bin maelstrom-args;
           bin-args = ["--low-latency"];
           analysis-params = {
             msgs-per-op = 30;
             latency-median = 400;
             latency-max = 600;
+          };
+        };
+        broadcast-stress-low-bandwidth = {
+          inherit (broadcast-stress) bin maelstrom-args;
+          bin-args = ["--low-bandwidth"];
+          analysis-params = {
+            msgs-per-op = 20;
+            latency-median = 1000;
+            latency-max = 2000;
           };
         };
       };
@@ -324,8 +341,14 @@
         broadcast = maelstrom-derivation "broadcast" {
           inherit (maelstrom-cases.broadcast) bin maelstrom-args;
         };
+        broadcast-stress = maelstrom-derivation "broadcast-stress" {
+          inherit (maelstrom-cases.broadcast-stress) bin maelstrom-args analysis-params;
+        };
         broadcast-stress-low-latency = maelstrom-derivation "broadcast-stress-low-latency" {
           inherit (maelstrom-cases.broadcast-stress-low-latency) bin maelstrom-args bin-args analysis-params;
+        };
+        broadcast-stress-low-bandwidth = maelstrom-derivation "broadcast-stress-low-bandwidth" {
+          inherit (maelstrom-cases.broadcast-stress-low-bandwidth) bin maelstrom-args bin-args analysis-params;
         };
       };
       maelstrom-test-scripts = {
@@ -344,14 +367,14 @@
         maelstrom-test-broadcast = maelstrom-script "broadcast" {
           inherit (maelstrom-cases.broadcast) bin maelstrom-args;
         };
+        maelstrom-test-broadcast-stress = maelstrom-script "broadcast-stress" {
+          inherit (maelstrom-cases.broadcast-stress) bin maelstrom-args analysis-params;
+        };
         maelstrom-test-broadcast-stress-low-latency = maelstrom-script "broadcast-stress-low-latency" {
           inherit (maelstrom-cases.broadcast-stress-low-latency) bin maelstrom-args bin-args analysis-params;
         };
-        maelstrom-test-broadcast-stress-low-bandwidth = maelstrom-test-broadcast-stress-generic {
-          bin-args = ["--low-bandwidth"];
-          msgs-per-op = 20;
-          latency-median = 1000;
-          latency-max = 2000;
+        maelstrom-test-broadcast-stress-low-bandwidth = maelstrom-script "broadcast-stress-low-bandwidth" {
+          inherit (maelstrom-cases.broadcast-stress-low-bandwidth) bin maelstrom-args bin-args analysis-params;
         };
         # TODO add test for the "Default" values to meet both low-latency and low-bandwidth criteria
         # --> change "maelstrom-test-broadcast-stress-generic" to return a derivation to construct the `tmp.out` file,
