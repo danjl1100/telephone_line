@@ -325,135 +325,29 @@
           echo -e "\t" ${src}
         fi
       '';
-      maelstrom-test-derivations = {
-        echo = maelstrom-derivation "echo" {
-          inherit (maelstrom-cases.echo) bin maelstrom-args;
-        };
-        unique = maelstrom-derivation "unique" {
-          inherit (maelstrom-cases.unique) bin maelstrom-args;
-        };
-        broadcast-single = maelstrom-derivation "broadcast-single" {
-          inherit (maelstrom-cases.broadcast-single) bin maelstrom-args;
-        };
-        broadcast-connected = maelstrom-derivation "broadcast-connected" {
-          inherit (maelstrom-cases.broadcast-connected) bin maelstrom-args;
-        };
-        broadcast = maelstrom-derivation "broadcast" {
-          inherit (maelstrom-cases.broadcast) bin maelstrom-args;
-        };
-        broadcast-stress = maelstrom-derivation "broadcast-stress" {
-          inherit (maelstrom-cases.broadcast-stress) bin maelstrom-args analysis-params;
-        };
-        broadcast-stress-low-latency = maelstrom-derivation "broadcast-stress-low-latency" {
-          inherit (maelstrom-cases.broadcast-stress-low-latency) bin maelstrom-args bin-args analysis-params;
-        };
-        broadcast-stress-low-bandwidth = maelstrom-derivation "broadcast-stress-low-bandwidth" {
-          inherit (maelstrom-cases.broadcast-stress-low-bandwidth) bin maelstrom-args bin-args analysis-params;
-        };
-      };
-      maelstrom-test-scripts = {
-        maelstrom-test-echo = maelstrom-script "echo" {
-          inherit (maelstrom-cases.echo) bin maelstrom-args;
-        };
-        maelstrom-test-unique = maelstrom-script "unique" {
-          inherit (maelstrom-cases.unique) bin maelstrom-args;
-        };
-        maelstrom-test-broadcast-single = maelstrom-script "broadcast-single" {
-          inherit (maelstrom-cases.broadcast-single) bin maelstrom-args;
-        };
-        maelstrom-test-broadcast-connected = maelstrom-script "broadcast-connected" {
-          inherit (maelstrom-cases.broadcast-connected) bin maelstrom-args;
-        };
-        maelstrom-test-broadcast = maelstrom-script "broadcast" {
-          inherit (maelstrom-cases.broadcast) bin maelstrom-args;
-        };
-        maelstrom-test-broadcast-stress = maelstrom-script "broadcast-stress" {
-          inherit (maelstrom-cases.broadcast-stress) bin maelstrom-args analysis-params;
-        };
-        maelstrom-test-broadcast-stress-low-latency = maelstrom-script "broadcast-stress-low-latency" {
-          inherit (maelstrom-cases.broadcast-stress-low-latency) bin maelstrom-args bin-args analysis-params;
-        };
-        maelstrom-test-broadcast-stress-low-bandwidth = maelstrom-script "broadcast-stress-low-bandwidth" {
-          inherit (maelstrom-cases.broadcast-stress-low-bandwidth) bin maelstrom-args bin-args analysis-params;
-        };
-        # TODO add test for the "Default" values to meet both low-latency and low-bandwidth criteria
-        # --> change "maelstrom-test-broadcast-stress-generic" to return a derivation to construct the `tmp.out` file,
-        #     so that multiple analysis criteria can be applied for the single log output
-      };
-      maelstrom-test-broadcast-stress-generic = let
-        numeric_check_lt = {
-          value,
-          threshold,
-          label,
-          units,
-        }: ''
-          if (( $(echo "${value} < ${toString threshold}" | ${pkgs.bc}/bin/bc -l) )); then
-            echo "[PASS] ${label}: ${value} (below goal of ${toString threshold} ${units})"
-          else
-            echo "[FAIL] ${label} is out of range: ${value} (should be below goal of ${toString threshold} ${units})"
-            FAIL=1
-          fi
-        '';
-      in
-        {
-          bin-args ? [],
-          msgs-per-op,
-          latency-median,
-          latency-max,
-        }:
-          pkgs.writeShellScriptBin "test-broadcast-stress" ''
-            # exit on first error
-            set -e
-            ${maelstrom}/bin/maelstrom test -w broadcast --bin ''${1:-target/debug/broadcast} \
-              --node-count 25 --time-limit 20 --rate 100 --latency 100 \
-              -- ${pkgs.lib.escapeShellArgs bin-args} \
-              | tee tmp.out
-
-            # analysis
-            grep "msgs-per-op" tmp.out
-            grep stable-latencies tmp.out -A 4
-
-            set +x
-            msgs_per_op1=$(grep "msgs-per-op" tmp.out | cut -d "p" -f3 | cut -d "}" -f1 | xargs echo | cut -d " " -f 1)
-            msgs_per_op2=$(grep "msgs-per-op" tmp.out | cut -d "p" -f3 | cut -d "}" -f1 | xargs echo | cut -d " " -f 2)
-            latency_median=$(grep stable-latencies tmp.out -A 4 | grep "0.5 " | xargs echo | cut -d " " -f 2- | cut -d "," -f1)
-            latency_max=$(grep stable-latencies tmp.out -A 4 | grep "1 " | xargs echo | cut -d " " -f 2- | cut -d "}" -f1)
-
-            FAIL=0
-            ${numeric_check_lt {
-              value = "$msgs_per_op1";
-              threshold = msgs-per-op;
-              label = "Messages per op (#1)";
-              units = "messages per op";
-            }}
-            ${numeric_check_lt {
-              value = "$msgs_per_op2";
-              threshold = msgs-per-op;
-              label = "Messages per op (#2)";
-              units = "messages per op";
-            }}
-            ${numeric_check_lt {
-              value = "$latency_median";
-              threshold = latency-median;
-              label = "Latency Median";
-              units = "ms";
-            }}
-            ${numeric_check_lt {
-              value = "$latency_max";
-              threshold = latency-max;
-              label = "Latency Max";
-              units = "ms";
-            }}
-
-            if [ $FAIL -eq 0 ]; then
-              echo "Output analysis check passed."
-              rm tmp.out
-            else
-              echo "Output analysis check failed, persisting output file tmp.out"
-            fi
-
-            exit $FAIL
-          '';
+      maelstrom-test-derivations =
+        pkgs.lib.mapAttrs (
+          label: case @ {
+            bin,
+            maelstrom-args,
+            bin-args ? [],
+            analysis-params ? null,
+          }:
+            maelstrom-derivation "${label}" case
+        )
+        maelstrom-cases;
+      maelstrom-test-scripts =
+        pkgs.lib.mapAttrs' (
+          label: case @ {
+            bin,
+            maelstrom-args,
+            bin-args ? [],
+            analysis-params ? null,
+          }:
+            pkgs.lib.nameValuePair "maelstrom-test-${label}"
+            (maelstrom-script "${label}" case)
+        )
+        maelstrom-cases;
 
       regression-tests = pkgs.symlinkJoin {
         name = "regression-tests";
@@ -466,22 +360,6 @@
             '')
           ];
       };
-      # regression-tests = pkgs.writeShellScriptBin "regression-tests" ''
-      #   # exit on first error
-      #   set -e
-
-      #   ${maelstrom-tests.maelstrom-test-echo}/bin/test-echo ${crate.package}/bin/echo
-
-      #   ${maelstrom-tests.maelstrom-test-unique}/bin/test-unique ${crate.package}/bin/unique
-
-      #   # NOTE: These are now redundant, see below
-      #   # ${maelstrom-tests.maelstrom-test-broadcast-single}/bin/test-broadcast-single ${crate.package}/bin/broadcast
-      #   # ${maelstrom-tests.maelstrom-test-broadcast-connected}/bin/test-broadcast-connected ${crate.package}/bin/broadcast
-      #   # ${maelstrom-tests.maelstrom-test-broadcast}/bin/test-broadcast ${crate.package}/bin/broadcast
-      #   ${maelstrom-tests.maelstrom-test-broadcast-stress-low-latency}/bin/test-broadcast-stress ${crate.package}/bin/broadcast
-      #   ${maelstrom-tests.maelstrom-test-broadcast-stress-low-bandwidth}/bin/test-broadcast-stress ${crate.package}/bin/broadcast
-
-      # '';
 
       #
       # Rust packages
