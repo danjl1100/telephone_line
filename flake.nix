@@ -187,22 +187,18 @@
             then ""
             else ''
               | tee ${pkgs.lib.escapeShellArg out-file}
-            ''
-          }
-          ${
-            if isNull analysis-params
-            then ""
-            else
-              (maelstrom-analysis-text
+              ${exit-code-var}=0
+              ${maelstrom-analysis-text
                 {
                   inherit label exit-code-var;
                   src = pkgs.lib.escapeShellArg out-file;
                 }
-                analysis-params)
+                analysis-params}
+              if [ ''$${exit-code-var} -eq 0 ]; then
+                  rm ${pkgs.lib.escapeShellArg out-file}
+              fi
+            ''
           }
-          if [ ''$${exit-code-var} -eq 0 ]; then
-              rm ${pkgs.lib.escapeShellArg out-file}
-          fi
         '';
       maelstrom-derivation = label: {
         bin,
