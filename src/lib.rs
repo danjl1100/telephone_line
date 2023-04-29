@@ -2,6 +2,10 @@ use anyhow::{bail, Context};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::io::BufRead;
 
+pub mod services {
+    pub mod key_value;
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Message<P> {

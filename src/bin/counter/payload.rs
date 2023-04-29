@@ -1,17 +1,34 @@
 use serde::{Deserialize, Serialize};
+pub use telephone_line::services::key_value;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Raw {
-    Add { delta: usize },
+    Add {
+        delta: usize,
+    },
     AddOk,
-    ReadOk { value: usize },
-    Read { key: Option<String> },
-    Write { key: String, value: usize },
+    ReadOk {
+        value: usize,
+    },
+    Read {
+        key: Option<String>,
+    },
+    Write {
+        key: String,
+        value: usize,
+    },
     WriteOk,
-    Cas { key: String, from: usize, to: usize },
+    Cas {
+        key: String,
+        from: usize,
+        to: usize,
+    },
     CasOk,
-    Error { code: KvErrorCode, text: String },
+    Error {
+        code: key_value::ErrorCode,
+        text: String,
+    },
 }
 
 pub enum Typed {
@@ -20,11 +37,11 @@ pub enum Typed {
 }
 
 pub enum Receive {
-    Kv(KeyValueReceive),
+    Kv(key_value::Receive),
     Count(CountReceive),
 }
 pub enum Send {
-    Kv(KeyValueSend),
+    Kv(key_value::Send),
     Count(CountSend),
 }
 impl TryFrom<Raw> for Receive {
@@ -36,10 +53,10 @@ impl TryFrom<Raw> for Receive {
             Raw::Read { key: None } => Receive::Count(CountReceive::Read),
 
             // KeyValue
-            Raw::ReadOk { value } => Receive::Kv(KeyValueReceive::ReadOk { value }),
-            Raw::WriteOk => Receive::Kv(KeyValueReceive::WriteOk),
-            Raw::CasOk => Receive::Kv(KeyValueReceive::CasOk),
-            Raw::Error { code, text } => Receive::Kv(KeyValueReceive::Error { code, text }),
+            Raw::ReadOk { value } => Receive::Kv(key_value::Receive::ReadOk { value }),
+            Raw::WriteOk => Receive::Kv(key_value::Receive::WriteOk),
+            Raw::CasOk => Receive::Kv(key_value::Receive::CasOk),
+            Raw::Error { code, text } => Receive::Kv(key_value::Receive::Error { code, text }),
 
             // Error
             Raw::Read { key: Some(_) } | Raw::Write { .. } | Raw::Cas { .. } | Raw::AddOk => {
@@ -49,17 +66,6 @@ impl TryFrom<Raw> for Receive {
     }
 }
 
-pub enum KeyValueSend {
-    Read { key: String },
-    Write { key: String, value: usize },
-    Cas { key: String, from: usize, to: usize },
-}
-pub enum KeyValueReceive {
-    ReadOk { value: usize },
-    WriteOk,
-    CasOk,
-    Error { code: KvErrorCode, text: String },
-}
 pub enum CountReceive {
     Add { delta: usize },
     Read,
@@ -69,22 +75,22 @@ pub enum CountSend {
     ReadOk { value: usize },
 }
 
-impl From<KeyValueSend> for Raw {
-    fn from(msg: KeyValueSend) -> Self {
+impl From<key_value::Send> for Raw {
+    fn from(msg: key_value::Send) -> Self {
         match msg {
-            KeyValueSend::Read { key } => Raw::Read { key: Some(key) },
-            KeyValueSend::Write { key, value } => Raw::Write { key, value },
-            KeyValueSend::Cas { key, from, to } => Raw::Cas { key, from, to },
+            key_value::Send::Read { key } => Raw::Read { key: Some(key) },
+            key_value::Send::Write { key, value } => Raw::Write { key, value },
+            key_value::Send::Cas { key, from, to } => Raw::Cas { key, from, to },
         }
     }
 }
-impl From<KeyValueReceive> for Raw {
-    fn from(msg: KeyValueReceive) -> Self {
+impl From<key_value::Receive> for Raw {
+    fn from(msg: key_value::Receive) -> Self {
         match msg {
-            KeyValueReceive::ReadOk { value } => Raw::ReadOk { value },
-            KeyValueReceive::WriteOk => Raw::WriteOk,
-            KeyValueReceive::CasOk => Raw::CasOk,
-            KeyValueReceive::Error { code, text } => Raw::Error { code, text },
+            key_value::Receive::ReadOk { value } => Raw::ReadOk { value },
+            key_value::Receive::WriteOk => Raw::WriteOk,
+            key_value::Receive::CasOk => Raw::CasOk,
+            key_value::Receive::Error { code, text } => Raw::Error { code, text },
         }
     }
 }
@@ -101,36 +107,6 @@ impl From<CountSend> for Raw {
         match msg {
             CountSend::AddOk => Raw::AddOk,
             CountSend::ReadOk { value } => Raw::ReadOk { value },
-        }
-    }
-}
-
-pub use key_value_error::KvErrorCode;
-mod key_value_error {
-    use super::*;
-    #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-    #[serde(from = "u32", into = "u32")]
-    pub enum KvErrorCode {
-        KeyNotFound,
-        CasFromMismatch,
-        Unknown(u32),
-    }
-    impl From<u32> for KvErrorCode {
-        fn from(code: u32) -> Self {
-            match code {
-                20 => Self::KeyNotFound,
-                22 => Self::CasFromMismatch,
-                unknown => Self::Unknown(unknown),
-            }
-        }
-    }
-    impl From<KvErrorCode> for u32 {
-        fn from(code: KvErrorCode) -> Self {
-            match code {
-                KvErrorCode::KeyNotFound => 20,
-                KvErrorCode::CasFromMismatch => 22,
-                KvErrorCode::Unknown(unknown) => unknown,
-            }
         }
     }
 }

@@ -4,7 +4,6 @@ use regex::Regex;
 use std::{collections::VecDeque, time::Duration};
 use telephone_line::{main_loop, Body, EventSender, Message, Node};
 
-use payload::KvErrorCode;
 pub mod payload;
 
 struct Counter {
@@ -104,7 +103,7 @@ impl Node for Counter {
                 let msg_id =
                     original_in_reply_to.expect("KeyValue response missing field in_reply_to");
                 match kv {
-                    payload::KeyValueReceive::ReadOk { value } => {
+                    payload::key_value::Receive::ReadOk { value } => {
                         self.update_with_snapshot(Snapshot {
                             local_count_to_subtract: 0,
                             central: CentralSnapshot {
@@ -114,7 +113,7 @@ impl Node for Counter {
                         });
                         Ok(())
                     }
-                    payload::KeyValueReceive::WriteOk => {
+                    payload::key_value::Receive::WriteOk => {
                         self.update_with_snapshot(Snapshot {
                             local_count_to_subtract: 0,
                             central: CentralSnapshot {
@@ -124,14 +123,16 @@ impl Node for Counter {
                         });
                         Ok(())
                     }
-                    payload::KeyValueReceive::CasOk => self.update_snapshot_cas_succeeded(msg_id),
-                    payload::KeyValueReceive::Error { code, text } => match code {
-                        KvErrorCode::KeyNotFound => {
+                    payload::key_value::Receive::CasOk => {
+                        self.update_snapshot_cas_succeeded(msg_id)
+                    }
+                    payload::key_value::Receive::Error { code, text } => match code {
+                        payload::key_value::ErrorCode::KeyNotFound => {
                             // TODO this is woefully racy...
-                            self.kv_message(|key| payload::KeyValueSend::Write { key, value: 0 })
+                            self.kv_message(|key| payload::key_value::Send::Write { key, value: 0 })
                                 .send(output)
                         }
-                        KvErrorCode::CasFromMismatch => {
+                        payload::key_value::ErrorCode::CasFromMismatch => {
                             use std::str::FromStr;
                             // attempt to parse error message "current value {N} is not {M}"
                             let Some(value) = KV_CAS_ERROR_REGEX
@@ -149,11 +150,11 @@ impl Node for Counter {
                             });
                             Ok(())
                             // ALTERNATIVE: not parsing the error string
-                            // self.kv_message(|key| payload::KeyValueSend::Read { key })
+                            // self.kv_message(|key| payload::key_value::Send::Read { key })
                             //     .send(output)
                         }
-                        KvErrorCode::Unknown(code) => {
-                            panic!("unknown KvErrorCode value {code}, {text}")
+                        payload::key_value::ErrorCode::Unknown(code) => {
+                            panic!("unknown payload::key_value::ErrorCode value {code}, {text}")
                         }
                     },
                 }
@@ -170,14 +171,14 @@ impl Node for Counter {
                 );
                 if no_change_since_last_send || self.local_counter == 0 {
                     // no update to send, read current value
-                    self.kv_message(|key| payload::KeyValueSend::Read { key })
+                    self.kv_message(|key| payload::key_value::Send::Read { key })
                         .send(output)
                 } else {
                     // update to send
                     let counter_from = self.central_snapshot.map(|s| s.counter).unwrap_or_default();
                     let counter_to = counter_from + self.local_counter;
 
-                    let message = self.kv_message(|key| payload::KeyValueSend::Cas {
+                    let message = self.kv_message(|key| payload::key_value::Send::Cas {
                         key,
                         from: counter_from,
                         to: counter_to,
@@ -201,10 +202,8 @@ impl Node for Counter {
 impl Counter {
     fn kv_message(
         &mut self,
-        payload_from_key_fn: impl FnOnce(String) -> payload::KeyValueSend,
+        payload_from_key_fn: impl FnOnce(String) -> payload::key_value::Send,
     ) -> Message<payload::Raw> {
-        /// Node id of the `seq-kv` provided by maelstrom test harness
-        const NODE_ID_SEQ_KV: &str = "seq-kv";
         /// Key for the centralized count
         const KEY_COUNT: &str = "c";
 
@@ -213,7 +212,7 @@ impl Counter {
         let payload = payload_from_key_fn(key).into();
         Message {
             src: self.node_id.clone(),
-            dest: NODE_ID_SEQ_KV.to_string(),
+            dest: payload::key_value::NODE_ID.to_string(),
             body: Body {
                 msg_id: Some(msg_id),
                 in_reply_to: None,
