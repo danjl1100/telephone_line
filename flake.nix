@@ -142,7 +142,7 @@
             "--latency 100"
           ];
           analysis-params = {
-            msgs-per-op = 20;
+            msgs-per-op = 21;
             latency-median = 400;
             latency-max = 650; # difficult to perfectly achieve both goals simultaneously, so just nudge this one a bit
           };
