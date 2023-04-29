@@ -30,7 +30,7 @@ impl PartialOrd for CentralSnapshot {
     }
 }
 
-const CENTRAL_UPDATE_INTERVAL: Duration = Duration::from_millis(50);
+const CENTRAL_UPDATE_INTERVAL: Duration = Duration::from_millis(1000);
 
 static KV_CAS_ERROR_REGEX: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"current value (?P<value>[\d]+) is not [\d]+").unwrap());
@@ -162,39 +162,35 @@ impl Node for Counter {
     fn step_event(&mut self, event: Event, output: &mut impl std::io::Write) -> anyhow::Result<()> {
         match event {
             Event::CentralSnapshot => {
-                match self.chronological_updates.back() {
-                    Some(last) if last.local_count_to_subtract == self.local_counter => {
-                        // no update to send, read current value
-                        self.kv_message(|key| payload::KeyValueSend::Read { key })
-                            .send(output)
-                    }
-                    _ if self.local_counter == 0 => {
-                        // no updates to send
-                        Ok(())
-                    }
-                    _ => {
-                        // update to send
-                        let counter_from =
-                            self.central_snapshot.map(|s| s.counter).unwrap_or_default();
-                        let counter_to = counter_from + self.local_counter;
+                let no_change_since_last_send = matches!(
+                    self.chronological_updates.back(),
+                    Some(last) if last.local_count_to_subtract == self.local_counter
+                );
+                if no_change_since_last_send || self.local_counter == 0 {
+                    // no update to send, read current value
+                    self.kv_message(|key| payload::KeyValueSend::Read { key })
+                        .send(output)
+                } else {
+                    // update to send
+                    let counter_from = self.central_snapshot.map(|s| s.counter).unwrap_or_default();
+                    let counter_to = counter_from + self.local_counter;
 
-                        let message = self.kv_message(|key| payload::KeyValueSend::Cas {
-                            key,
-                            from: counter_from,
-                            to: counter_to,
-                        });
+                    let message = self.kv_message(|key| payload::KeyValueSend::Cas {
+                        key,
+                        from: counter_from,
+                        to: counter_to,
+                    });
 
-                        let msg_id = message.body.msg_id.expect("kv_message yields msg_id");
-                        self.chronological_updates.push_back(Snapshot {
-                            local_count_to_subtract: self.local_counter,
-                            central: CentralSnapshot {
-                                counter: counter_to,
-                                msg_id,
-                            },
-                        });
+                    let msg_id = message.body.msg_id.expect("kv_message yields msg_id");
+                    self.chronological_updates.push_back(Snapshot {
+                        local_count_to_subtract: self.local_counter,
+                        central: CentralSnapshot {
+                            counter: counter_to,
+                            msg_id,
+                        },
+                    });
 
-                        message.send(output)
-                    }
+                    message.send(output)
                 }
             }
         }

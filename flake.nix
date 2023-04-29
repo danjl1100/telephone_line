@@ -174,7 +174,6 @@
             "--time-limit 20"
             "--nemesis partition"
           ];
-          regression-ignore = true;
         };
       };
       maelstrom-script = label: {
