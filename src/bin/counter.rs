@@ -1,4 +1,6 @@
-use anyhow::bail;
+use anyhow::{bail, Context};
+use once_cell::sync::Lazy;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{collections::VecDeque, time::Duration};
 use telephone_line::{main_loop, Body, EventSender, Message, Node};
@@ -29,6 +31,9 @@ impl PartialOrd for CentralSnapshot {
 }
 
 const CENTRAL_UPDATE_INTERVAL: Duration = Duration::from_millis(50);
+
+static KV_CAS_ERROR_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"current value (?P<value>[\d]+) is not [\d]+").unwrap());
 
 impl Node for Counter {
     type Payload = payload::Raw;
@@ -124,9 +129,27 @@ impl Node for Counter {
                             self.kv_message(|key| payload::KeyValueSend::Write { key, value: 0 })
                                 .send(output)
                         }
-                        KvErrorCode::CasFromMismatch => self
-                            .kv_message(|key| payload::KeyValueSend::Read { key })
-                            .send(output),
+                        KvErrorCode::CasFromMismatch => {
+                            use std::str::FromStr;
+                            // attempt to parse error message "current value {N} is not {M}"
+                            let Some(value) = KV_CAS_ERROR_REGEX
+                                             .captures(&text)
+                                             .and_then(|cap| cap.name("value")) else {
+                                bail!("failed to parse new value from Cas {code:?} error string {text:?}")
+                            };
+                            let value = value.as_str();
+                            let counter = usize::from_str(value)
+                                .context(format!("invalid number {value:?}"))
+                                .context(format!("parsing {code:?} error string {text:?}"))?;
+                            self.update_with_snapshot(Snapshot {
+                                local_count_to_subtract: 0,
+                                central: CentralSnapshot { counter, msg_id },
+                            });
+                            Ok(())
+                            // ALTERNATIVE: not parsing the error string
+                            // self.kv_message(|key| payload::KeyValueSend::Read { key })
+                            //     .send(output)
+                        }
                         KvErrorCode::Unknown(code) => {
                             panic!("unknown KvErrorCode value {code}, {text}")
                         }
