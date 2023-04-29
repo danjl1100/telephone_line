@@ -411,10 +411,6 @@
               cargo b && test-echo target/debug/echo
             '')
           ];
-        shellHook = ''
-          # temporarily enable sparse-index, until stabilized (in rust 1.70?)
-          export CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
-        '';
       };
 
       packages =
