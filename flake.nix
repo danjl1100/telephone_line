@@ -175,6 +175,16 @@
             "--nemesis partition"
           ];
         };
+        logs-single = {
+          bin = "logs";
+          maelstrom-args = [
+            "-w kafka"
+            "--node-count 1"
+            "--concurrency 2n"
+            "--time-limit 20"
+            "--rate 1000"
+          ];
+        };
       };
       maelstrom-script = label: {
         bin,
