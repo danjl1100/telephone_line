@@ -165,12 +165,24 @@
             latency-max = 2000;
           };
         };
+        counter = {
+          bin = "counter";
+          maelstrom-args = [
+            "-w g-counter"
+            "--node-count 3"
+            "--rate 100"
+            "--time-limit 20"
+            "--nemesis partition"
+          ];
+          regression-ignore = true;
+        };
       };
       maelstrom-script = label: {
         bin,
         bin-args ? [],
         maelstrom-args,
         analysis-params ? null,
+        regression-ignore ? false, # unused
       }: let
         out-file = ".test-${label}.out";
         exit-code-var = "FAIL";
@@ -205,6 +217,7 @@
         bin-args ? [],
         maelstrom-args,
         analysis-params ? null,
+        regression-ignore ? false, # unused
       }: let
         out-file = pkgs.stdenvNoCC.mkDerivation {
           name = "test-${label}";
@@ -328,8 +341,11 @@
             maelstrom-args,
             bin-args ? [],
             analysis-params ? null,
+            regression-ignore ? false,
           }:
-            maelstrom-derivation "${label}" case
+            if regression-ignore
+            then (pkgs.writeTextDir "store/ignored/${label}.txt" "regression-ignore = true; for test ${label}")
+            else (maelstrom-derivation "${label}" case)
         )
         maelstrom-cases;
       maelstrom-test-scripts =
@@ -339,6 +355,7 @@
             maelstrom-args,
             bin-args ? [],
             analysis-params ? null,
+            regression-ignore ? false, # unused
           }:
             pkgs.lib.nameValuePair "maelstrom-test-${label}"
             (maelstrom-script "${label}" case)

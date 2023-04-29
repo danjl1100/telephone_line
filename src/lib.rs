@@ -3,6 +3,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::io::BufRead;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[must_use]
 pub struct Message<P> {
     pub src: String,
     pub dest: String,
@@ -17,12 +18,19 @@ pub struct Body<P> {
     pub payload: P,
 }
 
+/// Increments the supplied counter and returns the next message id
+pub fn next_msg_id(id: &mut usize) -> usize {
+    let current = *id;
+    *id += 1;
+    current
+}
+
 impl<P> Message<P> {
     pub fn from_json(input: &str) -> anyhow::Result<Self>
     where
         P: DeserializeOwned,
     {
-        serde_json::from_str(input).context("deserialize message")
+        serde_json::from_str(input).context(format!("deserialize message {input:?}"))
     }
     pub fn reply(self, id: Option<&mut usize>) -> Self {
         let Message {
@@ -35,16 +43,11 @@ impl<P> Message<P> {
                     in_reply_to: _,
                 },
         } = self;
-        let new_msg_id = id.map(|id| {
-            let current = *id;
-            *id += 1;
-            current
-        });
         Message {
             src: dest,
             dest: src,
             body: Body {
-                msg_id: new_msg_id,
+                msg_id: id.map(next_msg_id),
                 in_reply_to: msg_id,
                 payload,
             },
