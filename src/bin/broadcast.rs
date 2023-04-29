@@ -41,7 +41,7 @@ const PARAMS_LOW_LATENCY: Params = Params {
     ..PARAMS_DEFAULT
 };
 const PARAMS_LOW_BANDWIDTH: Params = Params {
-    gossip_interval: Duration::from_millis(1800),
+    gossip_interval: Duration::from_millis(1500),
     ..PARAMS_DEFAULT
 };
 
