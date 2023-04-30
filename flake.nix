@@ -185,6 +185,17 @@
             "--rate 1000"
           ];
         };
+        logs = {
+          bin = "logs";
+          maelstrom-args = [
+            "-w kafka"
+            "--node-count 2"
+            "--concurrency 2n"
+            "--time-limit 20"
+            "--rate 1000"
+          ];
+          regression-ignore = true;
+        };
       };
       maelstrom-script = label: {
         bin,

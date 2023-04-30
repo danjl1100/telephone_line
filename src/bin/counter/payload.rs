@@ -12,7 +12,7 @@ pub enum Raw {
         value: usize,
     },
     Read {
-        key: Option<String>,
+        key: Option<String>, // key_value - requires key, Count - no key
     },
     Write {
         key: String,
@@ -31,17 +31,12 @@ pub enum Raw {
     },
 }
 
-pub enum Typed {
-    Receive(Receive),
-    Send(Send),
-}
-
 pub enum Receive {
     Kv(key_value::Receive),
     Count(CountReceive),
 }
 pub enum Send {
-    Kv(key_value::Send),
+    Kv(key_value::SendSeq),
     Count(CountSend),
 }
 impl TryFrom<Raw> for Receive {
@@ -75,12 +70,12 @@ pub enum CountSend {
     ReadOk { value: usize },
 }
 
-impl From<key_value::Send> for Raw {
-    fn from(msg: key_value::Send) -> Self {
+impl From<key_value::SendSeq> for Raw {
+    fn from(msg: key_value::SendSeq) -> Self {
         match msg {
-            key_value::Send::Read { key } => Raw::Read { key: Some(key) },
-            key_value::Send::Write { key, value } => Raw::Write { key, value },
-            key_value::Send::Cas { key, from, to } => Raw::Cas { key, from, to },
+            key_value::SendSeq::Read { key } => Raw::Read { key: Some(key) },
+            key_value::SendSeq::Write { key, value } => Raw::Write { key, value },
+            key_value::SendSeq::Cas { key, from, to } => Raw::Cas { key, from, to },
         }
     }
 }

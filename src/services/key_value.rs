@@ -1,12 +1,30 @@
 //! Common interface for maelstrom's `seq-kv` and `lin-kv` endpoints
 
 /// Node id of the `seq-kv` provided by maelstrom test harness
-pub const NODE_ID: &str = "seq-kv";
+pub const NODE_ID_SEQ: &str = "seq-kv";
+pub const NODE_ID_LIN: &str = "lin-kv";
 
-pub enum Send {
+/// Variant of `Send` for `seq-kv`
+pub enum SendSeq {
     Read { key: String },
     Write { key: String, value: usize },
     Cas { key: String, from: usize, to: usize },
+}
+/// Variant of `Send` for `lin-kv`
+pub enum SendLin {
+    Read {
+        key: String,
+    },
+    Write {
+        key: String,
+        value: usize,
+    },
+    Cas {
+        key: String,
+        from: usize,
+        to: usize,
+        create_if_not_exists: bool,
+    },
 }
 pub enum Receive {
     ReadOk { value: usize },
